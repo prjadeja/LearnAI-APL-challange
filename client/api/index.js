@@ -55,6 +55,13 @@ function getAdaptedLesson(session) {
 }
 
 // ── Vercel Handler ────────────────────────────────────────────
+
+function sendJSON(res, status, data) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(data));
+}
+
 module.exports = async function handler(req, res) {
   // Setup CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -62,11 +69,11 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return res.end();
   }
 
   try {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const url = new URL(req.url, `http://${req.headers && req.headers.host ? req.headers.host : 'localhost'}`);
     const pathname = url.pathname;
 
     // Helper to extract query
@@ -75,12 +82,12 @@ module.exports = async function handler(req, res) {
     if (pathname === '/api/start-learning' && req.method === 'POST') {
       const { topic, level, dailyMinutes } = req.body || {};
       if (!topic || typeof topic !== 'string' || topic.trim().length === 0) {
-        return res.status(400).json({ error: 'topic is required and must be a non-empty string' });
+        return sendJSON(res, 400, { error: 'topic is required and must be a non-empty string' });
       }
       const trimmedTopic = topic.trim();
       const session = createSession(trimmedTopic, level, Number(dailyMinutes));
 
-      return res.status(200).json({
+      return sendJSON(res, 200, {
         sessionId:     session.id,
         topic:         session.topic,
         level:         session.level,
@@ -94,14 +101,14 @@ module.exports = async function handler(req, res) {
 
     if (pathname === '/api/next-lesson' && req.method === 'GET') {
       const sessionId = getQuery('sessionId');
-      if (!sessionId) return res.status(400).json({ error: 'sessionId query param is required' });
+      if (!sessionId) return sendJSON(res, 400, { error: 'sessionId query param is required' });
 
       const session = getSession(sessionId);
-      if (!session) return res.status(404).json({ error: 'Session not found. Start a new session.' });
+      if (!session) return sendJSON(res, 404, { error: 'Session not found. Start a new session.' });
 
       const lesson = getAdaptedLesson(session);
       if (!lesson) {
-        return res.status(200).json({
+        return sendJSON(res, 200, {
           completed: true,
           message:   "🎉 Congratulations! You've completed all lessons!",
           totalXp:   session.totalXp,
@@ -109,20 +116,20 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      return res.status(200).json({ lesson, completed: false });
+      return sendJSON(res, 200, { lesson, completed: false });
     }
 
     if (pathname === '/api/submit-answer' && req.method === 'POST') {
       const { sessionId, lessonId, answerId } = req.body || {};
       const session = getSession(sessionId);
-      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (!session) return sendJSON(res, 404, { error: 'Session not found' });
 
       const lesson = session.curriculum.lessons[session.currentLessonIndex];
-      if (!lesson) return res.status(400).json({ error: 'No lesson found' });
+      if (!lesson) return sendJSON(res, 400, { error: 'No lesson found' });
 
       const correctOption  = lesson.question.options.find((o) => o.correct);
       const selectedOption = lesson.question.options.find((o) => o.id === answerId);
-      if (!selectedOption) return res.status(400).json({ error: 'Invalid answerId' });
+      if (!selectedOption) return sendJSON(res, 400, { error: 'Invalid answerId' });
 
       const isCorrect = selectedOption.correct;
       
@@ -147,7 +154,7 @@ module.exports = async function handler(req, res) {
           ? "🔥 Amazing! You're on a roll!"
           : '✅ Correct! Keep it up!';
 
-        return res.status(200).json({
+        return sendJSON(res, 200, {
           correct: true,
           xpEarned: lesson.xpReward + (session.difficultyModifier > 0 ? 5 : 0),
           totalXp: session.totalXp,
@@ -164,7 +171,7 @@ module.exports = async function handler(req, res) {
         session.consecutiveCorrect  = 0;
         session.difficultyModifier  = session.consecutiveWrong >= 2 ? -1 : 0;
 
-        return res.status(200).json({
+        return sendJSON(res, 200, {
           correct: false,
           xpEarned: 0,
           totalXp: session.totalXp,
@@ -185,13 +192,13 @@ module.exports = async function handler(req, res) {
     if (pathname === '/api/progress' && req.method === 'GET') {
       const sessionId = getQuery('sessionId');
       const session = getSession(sessionId);
-      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (!session) return sendJSON(res, 404, { error: 'Session not found' });
 
       const { curriculum, currentLessonIndex, completedLessons, totalXp, streak, dailyMinutes } = session;
       const progressPercent = Math.round((completedLessons.length / curriculum.totalLessons) * 100);
       const nextLesson = curriculum.lessons[currentLessonIndex];
 
-      return res.status(200).json({
+      return sendJSON(res, 200, {
         topic: session.topic,
         level: session.level,
         emoji: curriculum.emoji,
@@ -210,9 +217,9 @@ module.exports = async function handler(req, res) {
 
     if (pathname === '/api/explain-differently' && req.method === 'GET') {
       const session = getSession(getQuery('sessionId'));
-      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (!session) return sendJSON(res, 404, { error: 'Session not found' });
       const lesson = session.curriculum.lessons[session.currentLessonIndex];
-      return res.status(200).json({
+      return sendJSON(res, 200, {
         alternativeExplanation: lesson.alternativeExplanation,
         example: lesson.example,
         keyTakeaway: lesson.keyTakeaway,
@@ -221,10 +228,10 @@ module.exports = async function handler(req, res) {
 
     if (pathname === '/api/confused' && req.method === 'GET') {
       const session = getSession(getQuery('sessionId'));
-      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (!session) return sendJSON(res, 404, { error: 'Session not found' });
       const lesson = session.curriculum.lessons[session.currentLessonIndex];
       session.difficultyModifier = -1;
-      return res.status(200).json({
+      return sendJSON(res, 200, {
         simpleExplanation: lesson.simpleExplanation,
         keyTakeaway: lesson.keyTakeaway,
         hint: "💡 Focus on one idea at a time. Read slowly — it's okay to take your time.",
@@ -233,10 +240,10 @@ module.exports = async function handler(req, res) {
     }
 
     // Fallback 404
-    return res.status(404).json({ error: 'Route not found', pathname, method: req.method });
+    return sendJSON(res, 404, { error: 'Route not found', pathname, method: req.method });
 
   } catch (err) {
     console.error('Server error:', err);
-    return res.status(500).json({ error: 'Internal server error', details: err.message });
+    return sendJSON(res, 500, { error: 'Internal server error', details: err.message });
   }
 };
